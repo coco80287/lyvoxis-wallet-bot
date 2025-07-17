@@ -6,4 +6,4 @@ services:
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        value: 你的真實 Bot Token（或填 ${BOT_TOKEN} 用環境變數匯入）
+        value: ${BOT_TOKEN}
