@@ -1,2 +1,4 @@
-python-telegram-bot>=20.0
-python-dotenv
+python-telegram-bot==20.6    # Telegram 機器人主套件
+aiohttp                      # 處理非同步 HTTP 請求（例如匯率查詢、閃兌流程）
+requests                     # 一般 HTTP API 請求（如模擬匯率或地址查詢）
+python-dotenv                # 支援從 .env 或 Render 環境變數讀取 BOT_TOKEN 等參數
