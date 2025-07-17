@@ -8,26 +8,25 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
-# 讀取 .env 環境變數
+# 讀取 .env 檔（Render 可省略，這行也不會影響部署）
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 
-# 啟用日誌紀錄（可選）
+# 設定日誌（可選）
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
-# /start 指令
+# /start 指令處理
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 LYVOXIS Wallet 機器人啟動成功！")
+    await update.message.reply_text("✅ LYVOXIS Wallet 機器人啟動成功")
 
-# 主程式入口
-async def main():
+# 主程式
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    await app.run_polling()
+    app.run_polling()  # ⚠️ 不用 asyncio.run 了
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
