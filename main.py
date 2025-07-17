@@ -1,27 +1,29 @@
-from telegram import Update, BotCommand
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from dotenv import load_dotenv
 
-BOT_TOKEN = "7986353853:AAGFS_F9nPRwRhb6O-53eTNFFdfRGkNcKq0"  # 你自己的 Bot Token
+# 載入 .env 檔案中的環境變數
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# /start 指令處理器
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("歡迎使用 LYVOXIS 數位錢包機器人 ✨")
+    keyboard = [
+        [InlineKeyboardButton("💰 餘額查詢", callback_data="balance")],
+        [InlineKeyboardButton("🔗 綁定地址", callback_data="bind")],
+        [InlineKeyboardButton("📥 充值", callback_data="deposit")],
+        [InlineKeyboardButton("📤 提幣", callback_data="withdraw")],
+        [InlineKeyboardButton("🧧 紅包", callback_data="redpacket")],
+        [InlineKeyboardButton("💎 VIP", callback_data="vip")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("歡迎使用 LYVOXIS 錢包機器人，請選擇功能 👇", reply_markup=reply_markup)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("請輸入 /start 開始使用機器人。")
+# 建立 Bot 應用程式
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-
-    app.bot.set_my_commands([
-        BotCommand("start", "開始使用"),
-        BotCommand("help", "說明")
-    ])
-
-    print("✅ Bot is running...")
-    app.run_polling()
-
+# 開始執行
 if __name__ == "__main__":
-    main()
+    app.run_polling()
