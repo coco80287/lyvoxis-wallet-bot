@@ -9,5 +9,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from dotenv import load_dotenv  # ✅ 讀取 .env
 
-TOKEN = os.getenv("BOT_TOKEN")  # ✅ 只保留這行即可
+load_dotenv()  # ✅ 開始讀取 .env 檔案
+TOKEN = os.getenv("BOT_TOKEN")  # ✅ 取出 BOT_TOKEN
