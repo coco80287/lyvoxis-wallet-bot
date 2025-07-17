@@ -2,8 +2,8 @@ services:
   - type: web
     name: lyvoxis-wallet-bot
     env: python
-    buildCommand: ""   # 留空就好，會自動使用 requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        value: your_bot_token  # 或使用 ${BOT_TOKEN} 搭配 Render 內建環境變數管理
+        value: 你的真實 Bot Token（或填 ${BOT_TOKEN} 用環境變數匯入）
