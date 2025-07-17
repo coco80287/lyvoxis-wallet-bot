@@ -7,3 +7,6 @@ services:
     envVars:
       - key: BOT_TOKEN
         value: ${BOT_TOKEN}
+    build:
+      environment:
+        python: 3.11.9
