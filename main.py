@@ -81,3 +81,118 @@ def set_lang(user_id, lang):
         data[uid] = {}
     data[uid]["lang"] = lang
     save_data(data)
+# 假中繼地址與黑名單
+MOCK_SWAP_ADDRESS = "TGxxxxxxxxxxxxxxxxxxxx"
+BLACKLIST = ["0xBAD123", "0x0000000000BADF00D"]
+
+# 獲取 Binance 匯率
+async def get_binance_rate(from_symbol, to_symbol):
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={from_symbol.upper()}{to_symbol.upper()}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                data = await res.json()
+                return float(data["price"])
+    except:
+        return 1.0
+
+# 開卡模擬
+def generate_card():
+    number = "4000 " + " ".join(["".join(random.choices(string.digits, k=4)) for _ in range(3)])
+    expiry = f"{random.randint(1,12):02d}/{random.randint(26,30)}"
+    cvv = "".join(random.choices(string.digits, k=3))
+    return number, expiry, cvv
+
+# 語言選單
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("🇹🇼 繁體中文", callback_data="setlang_zh-tw"),
+            InlineKeyboardButton("🇨🇳 简体中文", callback_data="setlang_zh-cn"),
+            InlineKeyboardButton("🇺🇸 English", callback_data="setlang_en")
+        ]
+    ]
+    await update.message.reply_text(LANG["lang_select"]["zh-tw"], reply_markup=InlineKeyboardMarkup(keyboard))
+
+# 主功能選單
+async def show_menu(update, context, user_id):
+    lang = get_lang(user_id)
+    keyboard = [
+        [InlineKeyboardButton("💰 餘額查詢", callback_data="balance")],
+        [InlineKeyboardButton("🔗 綁定地址", callback_data="bind")],
+        [InlineKeyboardButton("📥 充值", callback_data="recharge")],
+        [InlineKeyboardButton("📤 提幣", callback_data="withdraw")],
+        [InlineKeyboardButton("🔁 閃兌", callback_data="swap")],
+        [InlineKeyboardButton("💳 開卡中心", callback_data="simcard")],
+        [InlineKeyboardButton("📲 電話充值", callback_data="phone")],
+        [InlineKeyboardButton("💎 VIP 套餐", callback_data="vip")]
+    ]
+    await context.bot.send_message(chat_id=user_id, text=LANG["start_msg"][lang], reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Callback 處理
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    data = load_data()
+    lang = get_lang(user_id)
+
+    if user_id not in data:
+        data[user_id] = {}
+
+    if query.data.startswith("setlang_"):
+        chosen = query.data.replace("setlang_", "")
+        set_lang(user_id, chosen)
+        await query.edit_message_text("✅ 語言設定完成")
+        await show_menu(update, context, user_id)
+        return
+
+    if query.data == "bind":
+        addr = f"0x{user_id[-6:]}ABCDEF"
+        data[user_id]["address"] = addr
+        data[user_id]["balance"] = 100.0
+        save_data(data)
+        await query.edit_message_text(LANG["bind_success"][lang].format(addr), parse_mode="Markdown")
+
+    elif query.data == "balance":
+        if "address" not in data[user_id]:
+            await query.edit_message_text(LANG["not_bound"][lang])
+            return
+        if data[user_id]["address"] in BLACKLIST:
+            await query.edit_message_text(LANG["blacku"][lang])
+            return
+        await query.edit_message_text(LANG["balance"][lang].format(data[user_id]["address"], data[user_id]["balance"]), parse_mode="Markdown")
+
+    elif query.data == "recharge":
+        await query.edit_message_text("📥 請轉入專屬地址模擬充值，餘額將自動更新")
+
+    elif query.data == "withdraw":
+        if "address" not in data[user_id]:
+            await query.edit_message_text(LANG["not_bound"][lang])
+            return
+        await query.edit_message_text("📤 出金請等待人工審核，預計 5 分鐘內完成")
+
+    elif query.data == "vip":
+        await query.edit_message_text("💎 VIP 價格：3個月12.9、6個月16.9、12個月29.9\nVIP 可享抽成降至 0.2%")
+
+    elif query.data == "swap":
+        btns = [
+            [InlineKeyboardButton("ETH → USDT", callback_data="do_swap_ETH_USDT")],
+            [InlineKeyboardButton("BTC → USDT", callback_data="do_swap_BTC_USDT")],
+            [InlineKeyboardButton("TRX → USDT", callback_data="do_swap_TRX_USDT")]
+        ]
+        await query.edit_message_text(LANG["select_swap_pair"][lang], reply_markup=InlineKeyboardMarkup(btns))
+
+    elif query.data.startswith("do_swap_"):
+        _, from_token, to_token = query.data.split("_")
+        rate = await get_binance_rate(from_token, to_token)
+        real_rate = round(rate * 0.995, 4)
+        await query.edit_message_text(LANG["swap_confirm"][lang].format(from_token, to_token, real_rate, MOCK_SWAP_ADDRESS), parse_mode="Markdown")
+
+    elif query.data == "simcard":
+        number, expiry, cvv = generate_card()
+        await query.edit_message_text(f"💳 虛擬卡開卡成功！\n卡號：`{number}`\n效期：{expiry}\nCVV：{cvv}", parse_mode="Markdown")
+
+    elif query.data == "phone":
+        await query.edit_message_text("📲 請輸入電話號碼，例如：+886987654321")
+        context.user_data["awaiting_phone"] = True
