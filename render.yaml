@@ -2,5 +2,9 @@ services:
   - type: web
     name: lyvoxis-wallet-bot
     env: python
-    buildCommand: ""
-    startCommand: python3 main.py
+    pythonVersion: 3.11.9
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: ${BOT_TOKEN}
