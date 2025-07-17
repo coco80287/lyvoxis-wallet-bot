@@ -10,3 +10,5 @@ services:
     build:
       environment:
         python: 3.11.9
+pip install --upgrade pip
+pip install python-telegram-bot==20.6 aiohttp
