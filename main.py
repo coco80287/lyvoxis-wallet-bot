@@ -2,74 +2,67 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
-# 讀取 Telegram Bot Token（從 Render 或 Replit 的環境變數）
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-# 用戶資料暫存（實際可改為資料庫）
+# 模擬用戶資料庫（可換成真實資料庫）
 user_data = {}
 
-# /start 指令處理
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    uid = user.id
+# 讀取 BOT_TOKEN
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-    # 建立用戶基本資料
-    if uid not in user_data:
-        user_data[uid] = {
-            "balance": 0.0,
-            "vip": False,
-        }
-
+# 主選單按鈕
+def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton("💰 查詢餘額", callback_data="balance")],
-        [InlineKeyboardButton("🪙 充值通知", callback_data="deposit")],
-        [InlineKeyboardButton("📤 我要提幣", callback_data="withdraw")],
-        [InlineKeyboardButton("👑 購買 VIP", callback_data="vip")],
+        [InlineKeyboardButton("💰 餘額查詢", callback_data="check_balance")],
+        [InlineKeyboardButton("🎁 發紅包", callback_data="send_redpacket")],
+        [InlineKeyboardButton("💸 提領", callback_data="withdraw")],
+        [InlineKeyboardButton("👑 VIP 升級", callback_data="vip")],
+        [InlineKeyboardButton("📞 客服支持", url="https://t.me/LYVOXIS")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
 
+# /start 指令
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"balance": 100.0, "vip": False}
     await update.message.reply_text(
-        f"👋 歡迎使用 LYVOXIS 數位錢包機器人！\n請選擇功能 👇", reply_markup=reply_markup
+        "歡迎使用 LYVOXIS 錢包機器人 👑\n請選擇以下功能：",
+        reply_markup=get_main_menu()
     )
 
-# 按鈕選單處理
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 處理按鈕事件
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
     await query.answer()
-    uid = query.from_user.id
 
-    if uid not in user_data:
-        user_data[uid] = {"balance": 0.0, "vip": False}
+    if user_id not in user_data:
+        user_data[user_id] = {"balance": 0.0, "vip": False}
 
-    if query.data == "balance":
-        balance = user_data[uid]["balance"]
-        await query.edit_message_text(f"💼 您目前錢包餘額為：{balance:.2f} U")
-    elif query.data == "deposit":
-        await query.edit_message_text(
-            "🪙 請將款項匯入以下錢包地址：\n`TXXX...`（僅支援 TRC20）\n系統將自動入金"
-        )
+    if query.data == "check_balance":
+        balance = user_data[user_id]["balance"]
+        vip = "是" if user_data[user_id]["vip"] else "否"
+        await query.edit_message_text(f"💼 您目前的餘額：{balance:.2f} U\n👑 VIP 身分：{vip}",
+                                      reply_markup=get_main_menu())
+
+    elif query.data == "send_redpacket":
+        user_data[user_id]["balance"] -= 5
+        await query.edit_message_text("🎁 紅包已發送！已扣除 5 U。",
+                                      reply_markup=get_main_menu())
+
     elif query.data == "withdraw":
-        await query.edit_message_text(
-            "📤 請點選下列連結填寫提幣表單：\nhttps://yourdomain.com/withdraw"
-        )
+        fee = 1.0 + user_data[user_id]["balance"] * 0.005
+        user_data[user_id]["balance"] -= fee
+        await query.edit_message_text(f"💸 已提領，手續費約 {fee:.2f} U 已扣除。",
+                                      reply_markup=get_main_menu())
+
     elif query.data == "vip":
-        await query.edit_message_text(
-            "👑 VIP 購買方案：\n\n"
-            "🔹 3個月 - 14.9 USDT\n"
-            "🔹 6個月 - 18.9 USDT\n"
-            "🔹 12個月 - 32.9 USDT\n\n"
-            "請轉帳至指定地址並聯絡客服開通"
-        )
+        user_data[user_id]["vip"] = True
+        await query.edit_message_text("🎉 恭喜升級 VIP！您享有更低手續費與紅包返利。",
+                                      reply_markup=get_main_menu())
 
-# 主程式
+# 建立機器人主應用程式
 if __name__ == "__main__":
-    if not BOT_TOKEN:
-        raise ValueError("❌ BOT_TOKEN 環境變數未設定")
-
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_buttons))
-
-    print("🤖 機器人已啟動...")
+    app.add_handler(CallbackQueryHandler(handle_button))
     app.run_polling()
