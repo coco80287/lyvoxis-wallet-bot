@@ -1,12 +1,9 @@
 services:
   - type: web
-    name: lyvoxis-wallet
+    name: lyvoxis-wallet-bot
     env: python
     buildCommand: ""
-    startCommand: "python main.py"
+    startCommand: python src/main.py
     envVars:
       - key: BOT_TOKEN
-        sync: false
-    build:
-      environment:
-        python: 3.10
+        value: ${BOT_TOKEN}
