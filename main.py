@@ -1,228 +1,394 @@
-import telegram
-print("✅ Telegram Bot Lib Version:", telegram.__version__)
 import os
-import json
 import random
-import string
-import asyncio
-import aiohttp
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+import requests
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes
+    ApplicationBuilder, ContextTypes,
+    CommandHandler, CallbackQueryHandler,
+    MessageHandler, ConversationHandler, filters
 )
 
-# ========= [資料庫初始化] ==========
-USER_DATA_FILE = "database.json"
+# 模擬資料存儲（可替換為真實資料庫）
+BLACKLIST = {"0xBADADDRESS"}  # 範例黑名單地址
+DEPOSIT_ADDRESSES = {
+    "ETH": "0x1111222233334444555566667777888899990000",
+    "BTC": "1BitcoinFakeAddress1234567890",
+    "TRX": "TXXXXXXXXXXXXXXXXXXXX"
+}
 
-def load_data():
-    if not os.path.exists(USER_DATA_FILE):
-        with open(USER_DATA_FILE, "w") as f:
-            json.dump({}, f)
-    with open(USER_DATA_FILE, "r") as f:
-        return json.load(f)
-
-def save_data(data):
-    with open(USER_DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-# ========= [多語言字典] ==========
-LANG = {
-    "start_msg": {
-        "zh-tw": "👋 歡迎使用 LYVOXIS 錢包！請選擇功能 👇",
-        "zh-cn": "👋 欢迎使用 LYVOXIS 钱包！请选择功能 👇",
-        "en": "👋 Welcome to LYVOXIS Wallet! Please choose an option 👇"
+# 多語言訊息模板
+TEXT = {
+    "choose_language": {
+        "TW": "請選擇語言 / Please choose a language",
+        "CN": "请选择语言 / Please choose a language",
+        "EN": "Please choose a language"
     },
-    "lang_select": {
-        "zh-tw": "🌐 請選擇語言",
-        "zh-cn": "🌐 请选择语言",
-        "en": "🌐 Please select language"
+    "language_set": {
+        "TW": "已設定語言：繁體中文",
+        "CN": "已设置语言：简体中文",
+        "EN": "Language set to English"
     },
-    "bind_success": {
-        "zh-tw": "✅ 地址已綁定：`{}`",
-        "zh-cn": "✅ 地址已绑定：`{}`",
-        "en": "✅ Address bound: `{}`"
+    "address_created": {
+        "TW": "已為您生成地址：{address}",
+        "CN": "已为您生成地址：{address}",
+        "EN": "Your new address is: {address}"
     },
-    "not_bound": {
-        "zh-tw": "⚠️ 尚未綁定地址，請先綁定！",
-        "zh-cn": "⚠️ 尚未绑定地址，请先绑定！",
-        "en": "⚠️ Address not bound. Please bind first!"
+    "address_exists": {
+        "TW": "您的綁定地址為：{address}",
+        "CN": "您的绑定地址为：{address}",
+        "EN": "Your bound address is: {address}"
     },
     "balance": {
-        "zh-tw": "💰 地址：`{}`\n餘額：{} U金",
-        "zh-cn": "💰 地址：`{}`\n余额：{} U金",
-        "en": "💰 Address: `{}`\nBalance: {} U-Coin"
+        "TW": "地址 {address} 的餘額為：{balance:.2f} USDT",
+        "CN": "地址 {address} 的余额为：{balance:.2f} USDT",
+        "EN": "Balance for address {address}: {balance:.2f} USDT"
     },
-    "blacku": {
-        "zh-tw": "🚫 此地址被列為風險地址，操作已阻止。",
-        "zh-cn": "🚫 此地址被列为风险地址，操作已阻止。",
-        "en": "🚫 This address is blacklisted. Action blocked."
+    "balance_blacklisted": {
+        "TW": "您的地址在黑名單中，無法查詢餘額。",
+        "CN": "您的地址在黑名单中，无法查询余额。",
+        "EN": "Your address is in blacklist, balance query forbidden."
     },
-    "select_swap_pair": {
-        "zh-tw": "請選擇兌換幣種對",
-        "zh-cn": "请选择兑换币种对",
-        "en": "Select a swap pair"
+    "deposit_prompt": {
+        "TW": "請將資金轉入以下地址：\n{address}",
+        "CN": "请将资金转入以下地址：\n{address}",
+        "EN": "Please deposit funds to the following address:\n{address}"
     },
-    "swap_confirm": {
-        "zh-tw": "🔁 兌換 {} → {}\n匯率：1:{}\n請轉入地址：\n`{}`",
-        "zh-cn": "🔁 兑换 {} → {}\n汇率：1:{}\n请转入地址：\n`{}`",
-        "en": "🔁 Swap {} → {}\nRate: 1:{}\nSend to:\n`{}`"
+    "withdraw_prompt": {
+        "TW": "您的提幣申請已提交，請等待人工審核。",
+        "CN": "您的提币申请已提交，请等待人工审核。",
+        "EN": "Your withdrawal request has been submitted for manual review."
+    },
+    "withdraw_blacklisted": {
+        "TW": "您的地址在黑名單中，無法提幣。",
+        "CN": "您的地址在黑名单中，无法提币。",
+        "EN": "Your address is in blacklist, withdrawal forbidden."
+    },
+    "withdraw_insufficient": {
+        "TW": "餘額不足，無法提幣。",
+        "CN": "余额不足，无法提币。",
+        "EN": "Insufficient balance, cannot withdraw."
+    },
+    "vip_info": {
+        "TW": "VIP 套餐：\n3個月 - 價格 $100 (手續費優惠10%)\n6個月 - 價格 $180 (手續費優惠20%)\n12個月 - 價格 $300 (手續費優惠30%)",
+        "CN": "VIP 套餐：\n3个月 - 价格 $100 (手续费优惠10%)\n6个月 - 价格 $180 (手续费优惠20%)\n12个月 - 价格 $300 (手续费优惠30%)",
+        "EN": "VIP Packages:\n3 months - Price $100 (10% fee discount)\n6 months - Price $180 (20% fee discount)\n12 months - Price $300 (30% fee discount)"
+    },
+    "exchange_select": {
+        "TW": "請選擇您要閃兌的幣種：",
+        "CN": "请选择您要闪兑的币种：",
+        "EN": "Select the coin to exchange:"
+    },
+    "exchange_enter_amount": {
+        "TW": "請輸入要轉換的 {coin} 金額：",
+        "CN": "请输入要转换的 {coin} 数量：",
+        "EN": "Enter amount of {coin} to convert:"
+    },
+    "exchange_result": {
+        "TW": "當前匯率：1 {coin} = {price:.2f} USDT\n抽成0.5%後，您將收到約 {amount:.2f} USDT。\n請將 {coin} 發送到地址：\n{address}",
+        "CN": "当前汇率：1 {coin} = {price:.2f} USDT\n抽成0.5%後，您将收到约 {amount:.2f} USDT。\n请将 {coin} 转账到地址：\n{address}",
+        "EN": "Current rate: 1 {coin} = {price:.2f} USDT\nAfter 0.5% fee, you will receive ~{amount:.2f} USDT.\nPlease send {coin} to address:\n{address}"
+    },
+    "card_info": {
+        "TW": "虛擬信用卡資訊：\n卡號：{number}\n效期：{expiry}\nCVV：{cvv}",
+        "CN": "虚拟信用卡信息：\n卡号：{number}\n有效期：{expiry}\nCVV：{cvv}",
+        "EN": "Virtual Card Information:\nCard Number: {number}\nExpiry Date: {expiry}\nCVV: {cvv}"
+    },
+    "topup_ask_phone": {
+        "TW": "請輸入要充值的手機號碼：",
+        "CN": "请输入要充值的手机号码：",
+        "EN": "Please enter the phone number to top up:"
+    },
+    "topup_select_amount": {
+        "TW": "請選擇儲值金額：",
+        "CN": "请选择充值金额：",
+        "EN": "Select top-up amount:"
+    },
+    "topup_success": {
+        "TW": "手機號碼 {phone} 充值成功，金額 {amount:.2f} 已扣除。",
+        "CN": "手机号码 {phone} 充值成功，金额 {amount:.2f} 已扣除。",
+        "EN": "Phone number {phone} top-up successful, amount {amount:.2f} has been deducted."
+    },
+    "insufficient_balance": {
+        "TW": "餘額不足！",
+        "CN": "余额不足！",
+        "EN": "Insufficient balance!"
     }
 }
 
-def get_lang(user_id):
-    data = load_data()
-    return data.get(str(user_id), {}).get("lang", "zh-tw")
+# 定義會話狀態常數
+EXCHANGE_COIN, EXCHANGE_AMOUNT = range(2)
+TOPUP_PHONE, TOPUP_AMOUNT = range(2)
 
-def set_lang(user_id, lang):
-    data = load_data()
-    uid = str(user_id)
-    if uid not in data:
-        data[uid] = {}
-    data[uid]["lang"] = lang
-    save_data(data)
+def get_text(key, lang, **kwargs):
+    """取得指定語言對應的文字並格式化。"""
+    return TEXT.get(key, {}).get(lang, '').format(**kwargs)
 
-MOCK_SWAP_ADDRESS = "TGxxxxxxxxxxxxxxxxxxxx"
-BLACKLIST = ["0xBAD123", "0x0000000000BADF00D"]
-
-async def get_binance_rate(from_symbol, to_symbol):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbol={from_symbol.upper()}{to_symbol.upper()}"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as res:
-                data = await res.json()
-                return float(data["price"])
-    except:
-        return 1.0
-
-def generate_card():
-    number = "4000 " + " ".join(["".join(random.choices(string.digits, k=4)) for _ in range(3)])
-    expiry = f"{random.randint(1,12):02d}/{random.randint(26,30)}"
-    cvv = "".join(random.choices(string.digits, k=3))
-    return number, expiry, cvv
-
+# /start 指令處理：請使用者選擇語言
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[
-        InlineKeyboardButton("🇹🇼 繁體中文", callback_data="setlang_zh-tw"),
-        InlineKeyboardButton("🇨🇳 简体中文", callback_data="setlang_zh-cn"),
-        InlineKeyboardButton("🇺🇸 English", callback_data="setlang_en")
-    ]]
-    await update.message.reply_text(LANG["lang_select"]["zh-tw"], reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def show_menu(update, context, user_id):
-    lang = get_lang(user_id)
     keyboard = [
-        [InlineKeyboardButton("💰 餘額查詢", callback_data="balance")],
-        [InlineKeyboardButton("🔗 綁定地址", callback_data="bind")],
-        [InlineKeyboardButton("📥 充值", callback_data="recharge")],
-        [InlineKeyboardButton("📤 提幣", callback_data="withdraw")],
-        [InlineKeyboardButton("🔁 閃兌", callback_data="swap")],
-        [InlineKeyboardButton("💳 開卡中心", callback_data="simcard")],
-        [InlineKeyboardButton("📲 電話充值", callback_data="phone")],
-        [InlineKeyboardButton("💎 VIP 套餐", callback_data="vip")]
+        [InlineKeyboardButton("繁體中文", callback_data='lang_TW'),
+         InlineKeyboardButton("简体中文", callback_data='lang_CN'),
+         InlineKeyboardButton("English", callback_data='lang_EN')]
     ]
-    await context.bot.send_message(chat_id=user_id, text=LANG["start_msg"][lang], reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        TEXT["choose_language"]["EN"],  # 初始預設英文提示
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 語言按鈕回調：設定使用者語言並生成地址
+async def lang_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(query.from_user.id)
-    data = load_data()
-    lang = get_lang(user_id)
-    if user_id not in data:
-        data[user_id] = {}
-    if query.data.startswith("setlang_"):
-        chosen = query.data.replace("setlang_", "")
-        set_lang(user_id, chosen)
-        await query.edit_message_text("✅ 語言設定完成")
-        await show_menu(update, context, user_id)
+    data = query.data  # 例如 "lang_TW"
+    lang = data.split("_")[1]
+    context.user_data['lang'] = lang
+    # 如果沒有地址則創建新地址
+    if 'address' not in context.user_data:
+        addr = "0x" + ''.join(random.choices('0123456789ABCDEF', k=40))
+        context.user_data['address'] = addr
+        context.user_data['balance'] = 0.0
+        text = get_text("address_created", lang, address=addr)
+    else:
+        addr = context.user_data['address']
+        text = get_text("address_exists", lang, address=addr)
+    text_lang = get_text("language_set", lang)
+    # 更新訊息為語言設定及地址訊息
+    await query.edit_message_text(text_lang + "\n" + text)
+
+# /address 指令：顯示或生成地址
+async def address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    if 'address' not in user_data:
+        addr = "0x" + ''.join(random.choices('0123456789ABCDEF', k=40))
+        user_data['address'] = addr
+        user_data['balance'] = 0.0
+        msg = get_text("address_created", lang, address=addr)
+    else:
+        addr = user_data['address']
+        msg = get_text("address_exists", lang, address=addr)
+    await update.message.reply_text(msg)
+
+# /balance 指令：查詢餘額
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    # 如果沒有地址則自動創建
+    if 'address' not in user_data:
+        addr = "0x" + ''.join(random.choices('0123456789ABCDEF', k=40))
+        user_data['address'] = addr
+        user_data['balance'] = 0.0
+        await update.message.reply_text(get_text("address_created", lang, address=addr))
         return
-    if query.data == "bind":
-        addr = f"0x{user_id[-6:]}ABCDEF"
-        data[user_id]["address"] = addr
-        data[user_id]["balance"] = 100.0
-        save_data(data)
-        await query.edit_message_text(LANG["bind_success"][lang].format(addr), parse_mode="Markdown")
-    elif query.data == "balance":
-        if "address" not in data[user_id]:
-            await query.edit_message_text(LANG["not_bound"][lang])
-            return
-        if data[user_id]["address"] in BLACKLIST:
-            await query.edit_message_text(LANG["blacku"][lang])
-            return
-        await query.edit_message_text(LANG["balance"][lang].format(data[user_id]["address"], data[user_id]["balance"]), parse_mode="Markdown")
-    elif query.data == "recharge":
-        await query.edit_message_text("📥 請轉入專屬地址模擬充值，餘額將自動更新")
-    elif query.data == "withdraw":
-        if "address" not in data[user_id]:
-            await query.edit_message_text(LANG["not_bound"][lang])
-            return
-        await query.edit_message_text("📤 出金請等待人工審核，預計 5 分鐘內完成")
-    elif query.data == "vip":
-        await query.edit_message_text("💎 VIP 價格：3個月12.9、6個月16.9、12個月29.9\nVIP 可享抽成降至 0.2%")
-    elif query.data == "swap":
-        btns = [[InlineKeyboardButton("ETH → USDT", callback_data="do_swap_ETH_USDT")],
-                [InlineKeyboardButton("BTC → USDT", callback_data="do_swap_BTC_USDT")],
-                [InlineKeyboardButton("TRX → USDT", callback_data="do_swap_TRX_USDT")]]
-        await query.edit_message_text(LANG["select_swap_pair"][lang], reply_markup=InlineKeyboardMarkup(btns))
-    elif query.data.startswith("do_swap_"):
-        _, from_token, to_token = query.data.split("_")
-        rate = await get_binance_rate(from_token, to_token)
-        real_rate = round(rate * 0.995, 4)
-        await query.edit_message_text(LANG["swap_confirm"][lang].format(from_token, to_token, real_rate, MOCK_SWAP_ADDRESS), parse_mode="Markdown")
-    elif query.data == "simcard":
-        number, expiry, cvv = generate_card()
-        await query.edit_message_text(f"💳 虛擬卡開卡成功！\n卡號：`{number}`\n效期：{expiry}\nCVV：{cvv}", parse_mode="Markdown")
-    elif query.data == "phone":
-        await query.edit_message_text("📲 請輸入電話號碼，例如：+886987654321")
-        context.user_data["awaiting_phone"] = True
+    addr = user_data['address']
+    # 黑名單檢查
+    if addr in BLACKLIST:
+        await update.message.reply_text(get_text("balance_blacklisted", lang))
+        return
+    bal = user_data.get('balance', 0.0)
+    await update.message.reply_text(get_text("balance", lang, address=addr, balance=bal))
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = load_data()
-    if user_id not in data:
-        data[user_id] = {"balance": 100.0}
-        save_data(data)
-    text = update.message.text.strip()
-    if context.user_data.get("awaiting_phone"):
-        context.user_data["phone_number"] = text
-        context.user_data["awaiting_phone"] = False
-        context.user_data["awaiting_amount"] = True
-        keyboard = [
-            [InlineKeyboardButton("📲 50 U金", callback_data="phone_amt_50")],
-            [InlineKeyboardButton("📲 100 U金", callback_data="phone_amt_100")],
-            [InlineKeyboardButton("📲 300 U金", callback_data="phone_amt_300")]
-        ]
-        await update.message.reply_text("請選擇儲值金額：", reply_markup=InlineKeyboardMarkup(keyboard))
+# /deposit 指令：顯示充值地址
+async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    if 'address' not in user_data:
+        addr = "0x" + ''.join(random.choices('0123456789ABCDEF', k=40))
+        user_data['address'] = addr
+        user_data['balance'] = 0.0
+    addr = user_data['address']
+    await update.message.reply_text(get_text("deposit_prompt", lang, address=addr))
 
-async def phone_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# /withdraw 指令：模擬提幣請求
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    if 'address' not in user_data:
+        await update.message.reply_text(get_text("address_exists", lang, address=""))
+        return
+    addr = user_data['address']
+    if addr in BLACKLIST:
+        await update.message.reply_text(get_text("withdraw_blacklisted", lang))
+        return
+    args = context.args
+    if not args or not args[0].replace('.', '').isdigit():
+        await update.message.reply_text("Usage: /withdraw <amount>")
+        return
+    amount = float(args[0])
+    balance = user_data.get('balance', 0.0)
+    if amount > balance:
+        await update.message.reply_text(get_text("withdraw_insufficient", lang))
+        return
+    # 扣除餘額並顯示提交訊息
+    user_data['balance'] = balance - amount
+    await update.message.reply_text(get_text("withdraw_prompt", lang))
+
+# /vip 指令：顯示 VIP 套餐資訊
+async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    await update.message.reply_text(get_text("vip_info", lang))
+
+# /exchange 指令：開始閃兌流程（對話）
+async def exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    keyboard = [
+        [InlineKeyboardButton("ETH", callback_data='coin_ETH'),
+         InlineKeyboardButton("BTC", callback_data='coin_BTC'),
+         InlineKeyboardButton("TRX", callback_data='coin_TRX')]
+    ]
+    await update.message.reply_text(
+        get_text("exchange_select", lang),
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return EXCHANGE_COIN
+
+async def exchange_coin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = str(query.from_user.id)
-    data = load_data()
-    amt = int(query.data.replace("phone_amt_", ""))
-    fee = amt * 0.005
-    total = amt + fee
-    balance = data.get(user_id, {}).get("balance", 0.0)
-    if balance < total:
-        await query.edit_message_text("⚠️ 餘額不足，請先充值")
-        return
-    data[user_id]["balance"] -= total
-    save_data(data)
-    phone = context.user_data.get("phone_number", "未知號碼")
-    await query.edit_message_text(f"✅ 電話號碼 {phone} 已儲值 {amt} U金（含手續費 0.5%）")
+    data = query.data  # 例如 "coin_ETH"
+    coin = data.split("_")[1]
+    context.user_data['exchange_coin'] = coin
+    lang = context.user_data.get('lang', 'EN')
+    text = get_text("exchange_enter_amount", lang, coin=coin)
+    await query.edit_message_text(text)
+    return EXCHANGE_AMOUNT
 
-async def main():
+async def exchange_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    coin = user_data.get('exchange_coin')
+    if not coin:
+        await update.message.reply_text(get_text("exchange_select", lang))
+        return ConversationHandler.END
+    try:
+        amt = float(update.message.text)
+    except ValueError:
+        await update.message.reply_text("Invalid amount.")
+        return ConversationHandler.END
+    # 呼叫 Binance API 取得即時匯率 [oai_citation:6‡developers.binance.com](https://developers.binance.com/docs/binance-spot-api-docs/faqs/market_data_only#:~:text=,GET%20%2Fapi%2Fv3%2Ftime)
+    symbol = coin + "USDT"
+    price = 0.0
+    try:
+        res = requests.get(f'https://api.binance.com/api/v3/ticker/price?symbol={symbol}')
+        data = res.json()
+        price = float(data.get('price', 0))
+    except Exception:
+        pass
+    received = amt * price * 0.995  # 扣除 0.5% 抽成
+    address = DEPOSIT_ADDRESSES.get(coin, '')
+    text = get_text("exchange_result", lang,
+                    coin=coin, price=price, amount=received, address=address)
+    await update.message.reply_text(text)
+    return ConversationHandler.END
+
+# /card 指令：生成虛擬信用卡資訊
+async def card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    # 生成前15位隨機數字，並計算 Luhn 校驗碼 [oai_citation:7‡github.com](https://github.com/wcDogg/python-cc-num-gen#:~:text=,with%20CVV%20and%20expiration%20dates)
+    def luhn_checksum(num_str):
+        digits = [int(d) for d in num_str]
+        for i in range(len(digits)-2, -1, -2):
+            doubled = digits[i] * 2
+            if doubled > 9:
+                doubled -= 9
+            digits[i] = doubled
+        return sum(digits) % 10
+    first15 = ''.join(random.choices('0123456789', k=15))
+    checksum = (10 - luhn_checksum(first15 + '0')) % 10
+    card_num = first15 + str(checksum)
+    year = datetime.now().year + random.randint(1,3)
+    month = random.randint(1,12)
+    expiry = f"{month:02d}/{str(year)[-2:]}"
+    cvv = ''.join(random.choices('0123456789', k=3))
+    text = get_text("card_info", lang, number=card_num, expiry=expiry, cvv=cvv)
+    await update.message.reply_text(text)
+
+# /topup 指令：電話儲值流程
+async def topup_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    await update.message.reply_text(get_text("topup_ask_phone", lang))
+    return TOPUP_PHONE
+
+async def topup_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    phone = update.message.text
+    user_data['topup_phone'] = phone
+    keyboard = [
+        [InlineKeyboardButton("10", callback_data='topup_10'),
+         InlineKeyboardButton("20", callback_data='topup_20'),
+         InlineKeyboardButton("50", callback_data='topup_50')]
+    ]
+    await update.message.reply_text(
+        get_text("topup_select_amount", lang),
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return TOPUP_AMOUNT
+
+async def topup_amount_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # 例如 "topup_20"
+    amount = float(data.split('_')[1])
+    user_data = context.user_data
+    lang = user_data.get('lang', 'EN')
+    phone = user_data.get('topup_phone', '')
+    balance = user_data.get('balance', 0.0)
+    if amount > balance:
+        await query.edit_message_text(get_text("insufficient_balance", lang))
+    else:
+        user_data['balance'] = balance - amount
+        text = get_text("topup_success", lang, phone=phone, amount=amount)
+        await query.edit_message_text(text)
+    return ConversationHandler.END
+
+def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        raise ValueError("⚠️ 請設置 BOT_TOKEN 環境變數")
-    application = ApplicationBuilder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(?!phone_amt_).+"))
-    application.add_handler(CallbackQueryHandler(phone_amount_handler, pattern="^phone_amt_"))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Bot 啟動成功！")
-    await application.run_polling(drop_pending_updates=True)
+        print("Error: BOT_TOKEN 未設定")
+        return
+    app = ApplicationBuilder().token(TOKEN).build()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    # 註冊指令與處理函式
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(lang_button, pattern="^lang_"))
+    app.add_handler(CommandHandler("address", address))
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("deposit", deposit))
+    app.add_handler(CommandHandler("withdraw", withdraw))
+    app.add_handler(CommandHandler("vip", vip))
+    app.add_handler(CommandHandler("card", card))
+
+    # 閃兌會話 (選幣種 -> 輸入數量)
+    exch_handler = ConversationHandler(
+        entry_points=[CommandHandler("exchange", exchange)],
+        states={
+            EXCHANGE_COIN: [CallbackQueryHandler(exchange_coin_callback, pattern="^coin_")],
+            EXCHANGE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, exchange_amount)],
+        },
+        fallbacks=[]
+    )
+    app.add_handler(exch_handler)
+
+    # 儲值會話 (輸入號碼 -> 選擇金額)
+    topup_handler = ConversationHandler(
+        entry_points=[CommandHandler("topup", topup_start)],
+        states={
+            TOPUP_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, topup_phone)],
+            TOPUP_AMOUNT: [CallbackQueryHandler(topup_amount_callback, pattern="^topup_")],
+        },
+        fallbacks=[]
+    )
+    app.add_handler(topup_handler)
+
+    print("Bot is running...")
+    app.run_polling()
+    print("Bot stopped.")
+
+if __name__ == '__main__':
+    main()
