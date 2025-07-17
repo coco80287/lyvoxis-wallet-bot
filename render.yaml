@@ -3,7 +3,7 @@ services:
     name: lyvoxis-wallet-bot
     env: python
     buildCommand: ""
-    startCommand: python src/main.py
+    startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
         value: ${BOT_TOKEN}
