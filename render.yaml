@@ -9,4 +9,4 @@ services:
         value: ${BOT_TOKEN}
     build:
       environment:
-        python: 3.10.13
+        python: 3.11.9
