@@ -1,7 +1,12 @@
 services:
   - type: web
-    name: lyvoxis-wallet-bot
+    name: lyvoxis-wallet
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
-    runtime: python3.12
+    buildCommand: ""
+    startCommand: "python main.py"
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+    build:
+      environment:
+        python: 3.10
