@@ -74,7 +74,7 @@ def get_lang(user_id):
     data = load_data()
     if str(user_id) in data and "lang" in data[str(user_id)]:
         return data[str(user_id)]["lang"]
-    return "zh-tw"  # 預設繁體
+    return "zh-tw"
 
 def set_lang(user_id, lang):
     data = load_data()
@@ -83,11 +83,10 @@ def set_lang(user_id, lang):
         data[uid] = {}
     data[uid]["lang"] = lang
     save_data(data)
-# 假中繼地址與黑名單
+
 MOCK_SWAP_ADDRESS = "TGxxxxxxxxxxxxxxxxxxxx"
 BLACKLIST = ["0xBAD123", "0x0000000000BADF00D"]
 
-# 獲取 Binance 匯率
 async def get_binance_rate(from_symbol, to_symbol):
     url = f"https://api.binance.com/api/v3/ticker/price?symbol={from_symbol.upper()}{to_symbol.upper()}"
     try:
@@ -98,25 +97,20 @@ async def get_binance_rate(from_symbol, to_symbol):
     except:
         return 1.0
 
-# 開卡模擬
 def generate_card():
     number = "4000 " + " ".join(["".join(random.choices(string.digits, k=4)) for _ in range(3)])
     expiry = f"{random.randint(1,12):02d}/{random.randint(26,30)}"
     cvv = "".join(random.choices(string.digits, k=3))
     return number, expiry, cvv
 
-# 語言選單
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("🇹🇼 繁體中文", callback_data="setlang_zh-tw"),
-            InlineKeyboardButton("🇨🇳 简体中文", callback_data="setlang_zh-cn"),
-            InlineKeyboardButton("🇺🇸 English", callback_data="setlang_en")
-        ]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("🇹🇼 繁體中文", callback_data="setlang_zh-tw"),
+        InlineKeyboardButton("🇨🇳 简体中文", callback_data="setlang_zh-cn"),
+        InlineKeyboardButton("🇺🇸 English", callback_data="setlang_en")
+    ]]
     await update.message.reply_text(LANG["lang_select"]["zh-tw"], reply_markup=InlineKeyboardMarkup(keyboard))
 
-# 主功能選單
 async def show_menu(update, context, user_id):
     lang = get_lang(user_id)
     keyboard = [
@@ -131,7 +125,6 @@ async def show_menu(update, context, user_id):
     ]
     await context.bot.send_message(chat_id=user_id, text=LANG["start_msg"][lang], reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Callback 處理
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -198,7 +191,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "phone":
         await query.edit_message_text("📲 請輸入電話號碼，例如：+886987654321")
         context.user_data["awaiting_phone"] = True
-        # 使用者輸入處理（電話充值流程）
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     data = load_data()
@@ -210,7 +203,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
 
-    # 電話號碼輸入 → 儲存後要求金額
     if context.user_data.get("awaiting_phone"):
         context.user_data["phone_number"] = text
         context.user_data["awaiting_phone"] = False
@@ -223,7 +215,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await update.message.reply_text("請選擇儲值金額：", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# 儲值金額處理
 async def phone_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -246,23 +237,21 @@ async def phone_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     phone = context.user_data.get("phone_number", "未知號碼")
     await query.edit_message_text(f"✅ 電話號碼 {phone} 已儲值 {amt} U金（含手續費 0.5%）")
 
-# ========== 啟動主程式 ==========
-if __name__ == "__main__":
+# ========= 主程式入口（新版 async）=========
+async def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
         raise ValueError("⚠️ 請設置 BOT_TOKEN 環境變數")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # 指令
     app.add_handler(CommandHandler("start", start))
-
-    # Callback 按鈕處理
     app.add_handler(CallbackQueryHandler(handle_callback, pattern="^(?!phone_amt_).+"))
     app.add_handler(CallbackQueryHandler(phone_amount_handler, pattern="^phone_amt_"))
-
-    # 訊息處理（電話號）
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Bot 啟動成功！")
-    app.run_polling()
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
