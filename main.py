@@ -12,7 +12,6 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes
 )
 
-# ========= [資料庫初始化] ==========
 USER_DATA_FILE = "database.json"
 
 def load_data():
@@ -26,7 +25,7 @@ def save_data(data):
     with open(USER_DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-# ========= [多語言字典] ==========
+# === 語言與提示 ===
 LANG = {
     "start_msg": {
         "zh-tw": "👋 歡迎使用 LYVOXIS 錢包！請選擇功能 👇",
@@ -103,6 +102,7 @@ def generate_card():
     cvv = "".join(random.choices(string.digits, k=3))
     return number, expiry, cvv
 
+# === 回傳 /start 主選單 ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[
         InlineKeyboardButton("🇹🇼 繁體中文", callback_data="setlang_zh-tw"),
@@ -111,6 +111,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]]
     await update.message.reply_text(LANG["lang_select"]["zh-tw"], reply_markup=InlineKeyboardMarkup(keyboard))
 
+# === 主選單 ===
 async def show_menu(update, context, user_id):
     lang = get_lang(user_id)
     keyboard = [
@@ -125,6 +126,7 @@ async def show_menu(update, context, user_id):
     ]
     await context.bot.send_message(chat_id=user_id, text=LANG["start_msg"][lang], reply_markup=InlineKeyboardMarkup(keyboard))
 
+# === Callback Query Handler ===
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -237,7 +239,7 @@ async def phone_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     phone = context.user_data.get("phone_number", "未知號碼")
     await query.edit_message_text(f"✅ 電話號碼 {phone} 已儲值 {amt} U金（含手續費 0.5%）")
 
-# ========= 主程式入口（新版 async）=========
+# ========== 主程序 ==========
 async def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
@@ -254,5 +256,4 @@ async def main():
     await application.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
