@@ -196,3 +196,71 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "phone":
         await query.edit_message_text("📲 請輸入電話號碼，例如：+886987654321")
         context.user_data["awaiting_phone"] = True
+        # 使用者輸入處理（電話充值流程）
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    data = load_data()
+    lang = get_lang(user_id)
+
+    if user_id not in data:
+        data[user_id] = {"balance": 100.0}
+        save_data(data)
+
+    text = update.message.text.strip()
+
+    # 電話號碼輸入 → 儲存後要求金額
+    if context.user_data.get("awaiting_phone"):
+        context.user_data["phone_number"] = text
+        context.user_data["awaiting_phone"] = False
+        context.user_data["awaiting_amount"] = True
+
+        keyboard = [
+            [InlineKeyboardButton("📲 50 U金", callback_data="phone_amt_50")],
+            [InlineKeyboardButton("📲 100 U金", callback_data="phone_amt_100")],
+            [InlineKeyboardButton("📲 300 U金", callback_data="phone_amt_300")]
+        ]
+        await update.message.reply_text("請選擇儲值金額：", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# 儲值金額處理
+async def phone_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    data = load_data()
+    lang = get_lang(user_id)
+
+    amt = int(query.data.replace("phone_amt_", ""))
+    fee = amt * 0.005
+    total = amt + fee
+    balance = data[user_id].get("balance", 0.0)
+
+    if balance < total:
+        await query.edit_message_text("⚠️ 餘額不足，請先充值")
+        return
+
+    data[user_id]["balance"] -= total
+    save_data(data)
+
+    phone = context.user_data.get("phone_number", "未知號碼")
+    await query.edit_message_text(f"✅ 電話號碼 {phone} 已儲值 {amt} U金（含手續費 0.5%）")
+
+# ========== 啟動主程式 ==========
+if __name__ == "__main__":
+    TOKEN = os.getenv("BOT_TOKEN")
+    if not TOKEN:
+        raise ValueError("⚠️ 請設置 BOT_TOKEN 環境變數")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # 指令
+    app.add_handler(CommandHandler("start", start))
+
+    # Callback 按鈕處理
+    app.add_handler(CallbackQueryHandler(handle_callback, pattern="^(?!phone_amt_).+"))
+    app.add_handler(CallbackQueryHandler(phone_amount_handler, pattern="^phone_amt_"))
+
+    # 訊息處理（電話號）
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("✅ Bot 啟動成功！")
+    app.run_polling()
