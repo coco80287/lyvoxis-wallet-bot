@@ -1,13 +1,13 @@
 import os
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 歡迎使用 LYVOXIS 數位錢包！輸入 /vip 查看 VIP 套餐")
+    await update.message.reply_text("👋 歡迎使用 LYVOXIS 數位錢包機器人")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
