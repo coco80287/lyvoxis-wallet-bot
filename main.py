@@ -243,15 +243,16 @@ async def main():
     if not TOKEN:
         raise ValueError("⚠️ 請設置 BOT_TOKEN 環境變數")
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    application = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_callback, pattern="^(?!phone_amt_).+"))
-    app.add_handler(CallbackQueryHandler(phone_amount_handler, pattern="^phone_amt_"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(?!phone_amt_).+"))
+    application.add_handler(CallbackQueryHandler(phone_amount_handler, pattern="^phone_amt_"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Bot 啟動成功！")
-    await app.run_polling()
+    await application.run_polling()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
