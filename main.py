@@ -1,3 +1,5 @@
+import telegram
+print("✅ Telegram Bot Lib Version:", telegram.__version__)
 import os
 import json
 import random
